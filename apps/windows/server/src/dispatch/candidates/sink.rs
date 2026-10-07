@@ -1,16 +1,20 @@
 //! 候选窗口的输出端。
 
-use qingjian_platform::CandidateRenderer;
 use qingjian_platform::protocol::{Frame, ScreenRect};
+use qingjian_platform::{CandidateRenderer, ThemeConfig};
 
 /// 候选窗口 / 状态条的画法。
-#[derive(Debug, Clone, PartialEq, Eq)]
+// 没有 `Eq`：[`ThemeConfig`] 里 `gloss_size` 是浮点，浮点不是 `Eq`；比较只用 `PartialEq`。
+#[derive(Debug, Clone, PartialEq)]
 pub struct RenderSettings {
     /// 由谁画（`[general] renderer`）。
     pub renderer: CandidateRenderer,
 
     /// 字族名（`[general] font`），空为系统字体。
     pub font: String,
+
+    /// 译文小字的字号与颜色（`[theme]`）。只对候选窗口生效，状态条不受影响。
+    pub theme: ThemeConfig,
 }
 
 /// Router 只产出帧，画交给它；Windows 上由 UI 线程实现。

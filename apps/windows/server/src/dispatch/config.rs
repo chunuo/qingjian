@@ -1,13 +1,14 @@
 use qingjian_platform::protocol::KeyModifiers;
 use qingjian_platform::{
     AppsConfig, CandidateRenderer, Config, KeyCombo, LayoutMode, PreeditMode, Scheme, SwitchKeys,
-    ThemeMode,
+    ThemeConfig, ThemeMode,
 };
 
 use super::RenderSettings;
 
 /// Router 要用的配置项，与 macOS 壳的 `Host` 字段对齐。
-#[derive(Debug, Clone, PartialEq, Eq)]
+// 没有 `Eq`：`theme` 里的 `gloss_size` 是浮点，浮点不是 `Eq`；比较只用 `PartialEq`。
+#[derive(Debug, Clone, PartialEq)]
 pub struct RouterConfig {
     /// 每页候选数（`[general] page_size`）。
     pub page_size: usize,
@@ -30,6 +31,9 @@ pub struct RouterConfig {
 
     /// 候选窗口字体的字族名（`[general] font`），空为系统字体；只对青简渲染器生效。
     pub font: String,
+
+    /// 候选行里译文小字的字号与颜色（`[theme]`）。
+    pub theme_config: ThemeConfig,
 
     /// 拼音显示位置（`[general] preedit`）。
     pub preedit: PreeditMode,
@@ -98,6 +102,7 @@ impl RouterConfig {
         RenderSettings {
             renderer: self.renderer,
             font: self.font.clone(),
+            theme: self.theme_config.clone(),
         }
     }
 }
@@ -112,6 +117,7 @@ impl From<&Config> for RouterConfig {
             theme: config.general.theme,
             renderer: config.general.renderer,
             font: config.general.font.trim().to_owned(),
+            theme_config: config.theme.clone(),
             preedit: config.general.preedit,
             page_keys: config.general.page_keys(),
             english_candidates: config.general.english_candidates,

@@ -96,9 +96,9 @@ fn highlighted_annotation_size(hdc: HDC, data: &RenderData) -> Option<(i32, i32)
     let width: i32 = row
         .annotation
         .iter()
-        .map(|(s, _)| measure(hdc, theme.annotation_font, s).cx)
+        .map(|(s, tone)| measure(hdc, tone_font(theme, *tone), s).cx)
         .sum();
-    let height = line_height(hdc, theme.annotation_font) + theme.row_padding;
+    let height = annotation_line_height(hdc, theme, &row.annotation) + theme.row_padding;
     Some((width, height))
 }
 
@@ -236,24 +236,25 @@ fn draw_rows(hdc: HDC, data: &RenderData, mut y: i32, width: i32) {
         }
         let baseline = y + theme.row_padding;
         let text_size = measure(hdc, theme.text_font, &row.text);
-        let small_offset = small_offset(hdc, theme, text_size.cy);
+        let index_offset = small_offset(hdc, theme.index_font, text_size.cy);
         draw_text(
             hdc,
             theme.index_font,
             theme.index_color,
             theme.padding,
-            baseline + small_offset,
+            baseline + index_offset,
             &row.index,
         );
-        draw_word(hdc, theme, row, text_x, baseline, small_offset);
+        draw_word(hdc, theme, row, text_x, baseline, text_size.cy);
         let mut x = annotation_x;
         for (segment, tone) in &row.annotation {
+            let font = tone_font(theme, *tone);
             x += draw_text(
                 hdc,
-                theme.annotation_font,
+                font,
                 tone_color(theme, *tone),
                 x,
-                baseline + small_offset,
+                baseline + small_offset(hdc, font, text_size.cy),
                 segment,
             );
         }
@@ -304,13 +305,13 @@ fn draw_horizontal(hdc: HDC, data: &RenderData, y: i32, width: i32) {
             };
             fill_round_rect(hdc, rect, theme.highlight, theme.corner_radius / 2);
         }
-        let small_offset = small_offset(hdc, theme, text_size.cy);
+        let index_offset = small_offset(hdc, theme.index_font, text_size.cy);
         draw_text(
             hdc,
             theme.index_font,
             theme.index_color,
             x,
-            baseline + small_offset,
+            baseline + index_offset,
             &row.index,
         );
         draw_word(
@@ -319,13 +320,13 @@ fn draw_horizontal(hdc: HDC, data: &RenderData, y: i32, width: i32) {
             row,
             x + index_width + index_gap,
             baseline,
-            small_offset,
+            text_size.cy,
         );
         x += item_width + theme.column_gap;
     }
     if let Some(footer) = &data.footer {
         let size = measure(hdc, theme.index_font, footer);
-        let offset = small_offset(hdc, theme, line_height(hdc, theme.text_font));
+        let offset = small_offset(hdc, theme.index_font, line_height(hdc, theme.text_font));
         draw_text(
             hdc,
             theme.index_font,
@@ -341,7 +342,7 @@ fn draw_horizontal(hdc: HDC, data: &RenderData, y: i32, width: i32) {
         for (segment, tone) in &row.annotation {
             x += draw_text(
                 hdc,
-                theme.annotation_font,
+                tone_font(theme, *tone),
                 tone_color(theme, *tone),
                 x,
                 top,
@@ -385,21 +386,44 @@ fn columns(hdc: HDC, theme: &Theme, rows: &[Row]) -> Columns {
         let annotation: i32 = row
             .annotation
             .iter()
-            .map(|(s, _)| measure(hdc, theme.annotation_font, s).cx)
+            .map(|(s, tone)| measure(hdc, tone_font(theme, *tone), s).cx)
             .sum();
         columns.index_width = columns.index_width.max(index.cx);
         columns.text_width = columns
             .text_width
             .max(text.cx + cloud_prefix_width(hdc, theme, row) + code_width(hdc, theme, row));
         columns.annotation_width = columns.annotation_width.max(annotation);
-        columns.row_height = columns.row_height.max(text.cy + theme.row_padding * 2);
+        // 译文调大后比候选词还高，行高要跟着长，否则下一行会压上来。
+        let line = line_height(hdc, theme.text_font).max(annotation_line_height(
+            hdc,
+            theme,
+            &row.annotation,
+        ));
+        columns.row_height = columns.row_height.max(line + theme.row_padding * 2);
     }
     columns
 }
 
 /// 小字相对候选词往下挪多少才纵向居中（GDI y 向下，取一半差）。
-fn small_offset(hdc: HDC, theme: &Theme, text_height: i32) -> i32 {
-    ((text_height - line_height(hdc, theme.annotation_font)) / 2).max(0)
+fn small_offset(hdc: HDC, font: HFONT, text_height: i32) -> i32 {
+    ((text_height - line_height(hdc, font)) / 2).max(0)
+}
+
+/// 某个色调该用哪个字体：译文 / 生词 / 码用可调的 [`Theme::gloss_font`]，词性用固定的小字。
+fn tone_font(theme: &Theme, tone: Tone) -> HFONT {
+    match tone {
+        Tone::Gloss | Tone::Fresh | Tone::Code => theme.gloss_font,
+        Tone::Faint => theme.annotation_font,
+    }
+}
+
+/// 一行 annotation 的行高：取各段字体的最大行高，译文调大时不会跟别的段串行。
+fn annotation_line_height(hdc: HDC, theme: &Theme, annotation: &[(String, Tone)]) -> i32 {
+    annotation
+        .iter()
+        .map(|(_, tone)| line_height(hdc, tone_font(theme, *tone)))
+        .max()
+        .unwrap_or_else(|| line_height(hdc, theme.annotation_font))
 }
 
 /// 云朵字形加它与后面文字的间隔。
@@ -419,11 +443,11 @@ fn cloud_prefix_width(hdc: HDC, theme: &Theme, row: &Row) -> i32 {
 fn code_width(hdc: HDC, theme: &Theme, row: &Row) -> i32 {
     row.code
         .as_ref()
-        .map_or(0, |code| measure(hdc, theme.annotation_font, code).cx)
+        .map_or(0, |code| measure(hdc, theme.gloss_font, code).cx)
 }
 
 /// 画候选词本体，云端词前带小云朵、后面紧跟辅码。返回占用宽度。
-fn draw_word(hdc: HDC, theme: &Theme, row: &Row, x: i32, baseline: i32, small_offset: i32) -> i32 {
+fn draw_word(hdc: HDC, theme: &Theme, row: &Row, x: i32, baseline: i32, text_height: i32) -> i32 {
     let prefix = cloud_prefix_width(hdc, theme, row);
     let color = if row.cloud {
         draw_text(
@@ -431,7 +455,7 @@ fn draw_word(hdc: HDC, theme: &Theme, row: &Row, x: i32, baseline: i32, small_of
             theme.annotation_font,
             theme.cloud_color,
             x,
-            baseline + small_offset,
+            baseline + small_offset(hdc, theme.annotation_font, text_height),
             CLOUD_GLYPH,
         );
         theme.cloud_color
@@ -443,10 +467,10 @@ fn draw_word(hdc: HDC, theme: &Theme, row: &Row, x: i32, baseline: i32, small_of
     if let Some(code) = &row.code {
         width += draw_text(
             hdc,
-            theme.annotation_font,
+            theme.gloss_font,
             tone_color(theme, Tone::Code),
             x + width,
-            baseline + small_offset,
+            baseline + small_offset(hdc, theme.gloss_font, text_height),
             code,
         );
     }

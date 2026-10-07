@@ -14,6 +14,7 @@ mod shift_letter;
 mod shortcut;
 mod status_bar;
 mod switch_key;
+mod theme;
 mod theme_mode;
 mod update;
 
@@ -47,17 +48,25 @@ pub use shift_letter::ShiftLetter;
 pub use shortcut::ShortcutConfig;
 pub use status_bar::StatusBarConfig;
 pub use switch_key::{SwitchKey, SwitchKeys};
+pub use theme::{
+    DEFAULT_FRESH_COLOR, DEFAULT_GLOSS_COLOR, DEFAULT_GLOSS_SIZE, MAX_GLOSS_SIZE, MIN_GLOSS_SIZE,
+    ThemeColor, ThemeConfig,
+};
 pub use theme_mode::ThemeMode;
 pub use update::{UpdateChannel, UpdateConfig};
 
 /// 用户配置文件（TOML）。所有平台同一份格式，缺省值全部在各分节的 `Default` 里。
 ///
 /// 配置文件是唯一事实源：菜单、设置窗口、手改文件三个入口都只写这个文件，再由壳热加载。
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+// 没有 `Eq`：[`ThemeConfig`] 里有 `gloss_size` 这样的浮点项，浮点本身不是 `Eq`。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// 常规：学习语言、每页候选数、翻页键、外观。
     pub general: GeneralConfig,
+
+    /// 候选行里译文小字的字号与颜色（`[theme]`）。
+    pub theme: ThemeConfig,
 
     /// 自定义短语；保存和读取均检查位置冲突。
     #[serde(deserialize_with = "deserialize_phrases")]
@@ -265,6 +274,14 @@ system_text_replacements = true
 # text = "；"       # 原样上屏的文本，可包含空格与换行
 # position = 1      # 固定候选位置：1–9
 # enabled = true    # 是否启用；停用仍保留位置
+
+[theme]
+# 候选行里译文小字（读音 / 词性 / 译文 / 辅码）的字号，8–48 点，缺省 12；候选词与顶部拼音行不变
+gloss_size = 12.0
+# 普通译文颜色，十六进制 #RRGGBB（也能写 8 位的 #RRGGBBAA 带透明度）；留空跟随内置色（浅色外观是灰的）
+gloss_color = ""
+# 生词译文颜色：还没见过几轮、需要强调的那个词就是这个色；留空跟随内置色（浅色外观是橙的 #ff8d28）
+fresh_color = ""
 
 [shortcut]
 # 前缀模式键，只能是 v / u / i 之一且互不相同（这三个字母不是任何拼音音节的开头）

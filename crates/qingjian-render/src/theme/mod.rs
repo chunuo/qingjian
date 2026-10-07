@@ -5,8 +5,27 @@
 mod font_spec;
 mod palette;
 
+use crate::color::Color;
+
 pub use font_spec::FontSpec;
 pub use palette::Palette;
+
+/// 译文小字的行高相对字号的倍数。内置 12 pt 字号配 15 pt 行高，用户改字号时按同一比例放行高。
+const GLOSS_LINE_RATIO: f32 = 15.0 / 12.0;
+
+/// 主题里可由用户覆盖的项（配置 `[theme]` 分节）。`None` 用内置值；只覆盖译文相关的几项，
+/// 其余留白给以后的完整主题文件。见 `docs/design/candidate-ui.md`。
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct ThemeOverrides {
+    /// 候选旁译文的字号（点）。`None` 用内置 12。
+    pub gloss_size: Option<f32>,
+
+    /// 普通译文颜色。`None` 用内置的次要标签灰。
+    pub gloss_color: Option<Color>,
+
+    /// 生词译文颜色（用户还没见过几轮、强调用）。`None` 用内置橙。
+    pub fresh_color: Option<Color>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
@@ -15,6 +34,10 @@ pub struct Theme {
 
     /// 译文与词性字体。
     pub annotation_font: FontSpec,
+
+    /// 候选行里译文 / 词性 / 码的字号；用户可改（[`ThemeOverrides::gloss_size`]），
+    /// 与顶部的拼音行分开，改译文大小不会顺带把拼音行放大。
+    pub gloss_font: FontSpec,
 
     /// 序号字体。
     pub index_font: FontSpec,
@@ -58,6 +81,7 @@ impl Theme {
             // 行高取 AppKit 系统字体在这几个字号下 NSAttributedString.size() 的高度
             text_font: FontSpec::new(16.0, 19.0),
             annotation_font: FontSpec::new(12.0, 15.0),
+            gloss_font: FontSpec::new(12.0, 15.0),
             index_font: FontSpec::new(11.0, 14.0),
             colors,
             padding: 8.0,
@@ -68,4 +92,25 @@ impl Theme {
             text_gamma,
         }
     }
+
+    /// 套用用户覆盖：只动译文相关的字号与颜色，其余保持不变；字号带上下限，避免配置里写疯值。
+    pub fn with_overrides(mut self, overrides: &ThemeOverrides) -> Self {
+        if let Some(size) = overrides.gloss_size {
+            let size = size.clamp(MIN_GLOSS_SIZE, MAX_GLOSS_SIZE);
+            self.gloss_font = FontSpec::new(size, size * GLOSS_LINE_RATIO);
+        }
+        if let Some(color) = overrides.gloss_color {
+            self.colors.gloss = color;
+        }
+        if let Some(color) = overrides.fresh_color {
+            self.colors.fresh = color;
+        }
+        self
+    }
 }
+
+/// 译文字号的合法范围（点）：太小看不清、太大把候选窗撑坏。
+pub const MIN_GLOSS_SIZE: f32 = 8.0;
+
+/// 见 [`MIN_GLOSS_SIZE`]。
+pub const MAX_GLOSS_SIZE: f32 = 48.0;

@@ -203,7 +203,11 @@ fn apply(
                 status.hide();
             }
         }
-        UiCommand::Configure(settings) => Painter::configure(painter, &settings),
+        UiCommand::Configure(settings) => {
+            // 两条画法都要跟着换：青简渲染器在 Painter 里，GDI 主题在候选窗口里。
+            window.configure(&settings);
+            Painter::configure(painter, &settings);
+        }
     }
 }
 

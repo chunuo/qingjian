@@ -27,7 +27,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
-use qingjian_platform::ThemeMode;
+use qingjian_platform::{ThemeConfig, ThemeMode};
 use qingjian_render::StatusCell;
 
 use self::cell::CellSpec;
@@ -117,7 +117,8 @@ impl StatusBar {
         Ok(Self {
             hwnd,
             data: RefCell::new(None),
-            theme: RefCell::new(Rc::new(Theme::new(dpi, dark))),
+            // 状态条不画译文，译文外观用缺省值即可。
+            theme: RefCell::new(Rc::new(Theme::new(dpi, dark, &ThemeConfig::default()))),
             dpi: Cell::new(dpi),
             dark: Cell::new(dark),
             placement,
@@ -159,7 +160,7 @@ impl StatusBar {
             .unwrap_or_default();
         let dark = resolve_dark(mode);
         if dpi != self.dpi.get() || dark != self.dark.get() {
-            *self.theme.borrow_mut() = Rc::new(Theme::new(dpi, dark));
+            *self.theme.borrow_mut() = Rc::new(Theme::new(dpi, dark, &ThemeConfig::default()));
             self.dpi.set(dpi);
             self.dark.set(dark);
         }

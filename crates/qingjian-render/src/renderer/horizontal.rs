@@ -36,13 +36,18 @@ impl Renderer {
         if row.annotation.is_empty() {
             return None;
         }
-        let style = m.annotation_style(m.theme.colors.gloss);
         let width: f32 = row
             .annotation
             .iter()
-            .map(|(s, _)| self.measure(s, &style).width)
+            .map(|(s, tone)| {
+                let style = m.tone_style(*tone);
+                self.measure(s, &style).width
+            })
             .sum();
-        Some((width, style.line_height + m.row_padding()))
+        Some((
+            width,
+            m.annotation_line_height(&row.annotation) + m.row_padding(),
+        ))
     }
 
     /// 横排各项的尺寸与统一行高。
@@ -104,7 +109,7 @@ impl Renderer {
                 &row.index,
                 &m.index_style(),
                 x,
-                top + m.small_offset(text_height),
+                top + m.index_offset(text_height),
             );
             self.draw_word(
                 canvas,
@@ -124,7 +129,7 @@ impl Renderer {
                 footer,
                 &style,
                 left + content_width - m.padding() - size.width,
-                top + m.small_offset(text_height),
+                top + m.index_offset(text_height),
             );
         }
         // 高亮候选的译文
@@ -132,7 +137,7 @@ impl Renderer {
             let mut x = left + m.padding() + inset;
             let annotation_top = y + row_height + m.row_padding() / 2.0;
             for (segment, tone) in &row.annotation {
-                let style = m.annotation_style(m.tone_color(*tone));
+                let style = m.tone_style(*tone);
                 x += self.draw_text(canvas, segment, &style, x, annotation_top);
             }
         }

@@ -82,6 +82,13 @@ collection behavior 是 CanJoinAllSpaces + FullScreenAuxiliary + Stationary。�
   和「非激活浮层」这种系统级窗口语义打架，为几百行绘制引入整套框架不划算。
 
 主题化通过主题文件（字体、字号、配色、行距、圆角、阴影、透明、渐变、布局）实现，不提供 HTML/CSS 皮肤；主题渲染的方向见 [rendering.md](rendering.md)。
+2026-10-07 先落地译文那一列的外观：配置 `[theme]` 的 `gloss_size`（8–48 点，缺省 12）、`gloss_color`（普通译文）、
+`fresh_color`（生词译文），Windows 设置程序「候选窗口」页对应「译文字号 / 普通译文颜色 / 生词译文颜色 / 恢复默认」。
+这一项在各壳都归结为渲染器的 `ThemeOverrides`（`None` 用内置值），只覆盖译文；译文因此从与词性 / 辅码共用的 `annotation_font` 里分出一个
+`gloss_font`（字号带头高比例 `GLOSS_LINE_RATIO`）。行高随字号走：两条绘制路径（`qingjian-render` 的 `renderer/{vertical,horizontal,matrix}.rs`、
+Windows 系统绘制的 `ui/candidates/view.rs`）都按字节的 `tone_font` 取字体、行高取该行各段的**最大**行高，否则调大字号会让上下行叠在一起。
+`[theme]` 只落在译文上，`general.theme` / 字体 / 拼音行不受影响；颜色走平台无关的 `ThemeColor`（`qingjian-platform`），
+各壳自己转渲染器的 `Color` 或 GDI 的 `COLORREF`——`qingjian-platform` 被 TSF DLL 依赖，不能拉进渲染器的字体依赖树。
 
 ## 平台层的职责
 

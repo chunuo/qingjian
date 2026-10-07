@@ -177,6 +177,9 @@ P2C 自由生成实验：`--eval-text <集> --eval-generate data/models/hanzhang
 `extra_dictionaries` 列出 / 加载随包领域词库与用户 `dicts/`
 （mac 壳与 Windows Server 共用，同名 `.qj` 优先于 `.tsv`）；`code_tables` 同构地列出 / 加载随包根 `codes/` 与用户 `codes/` 的码表
 （`[aux_code] disabled` 是黑名单，`[general] aux_code_key` 缺省 `;` 且校验后退回缺省、`aux_code_show` 是显示码开关）；
+`[theme]`（`config/theme.rs`，`ThemeConfig`）是候选行里译文小字的字号与颜色：`gloss_size`（8–48 点，缺省 12）、
+`gloss_color`（普通译文）、`fresh_color`（生词译文），后两者留空跟随内置色、写错警告后退回；这里只解析出平台无关的
+`ThemeColor`，各壳自己换成渲染器的 `ThemeOverrides`——本 crate 也被 TSF DLL 依赖，不能拉进渲染器的字体依赖树。
 `protocol` 模块是 Windows Server ↔ TSF DLL 的 IPC 协议类型
 （`ClientMessage` / `ServerMessage` / `Frame` / `PreeditSegment`，全 serde，两端共用，见 `docs/design/architecture.md`「Windows：TSF」；
 `PROTOCOL_VERSION` = 7（v7 加任务栏图标右键菜单的 `Indicator`），`PreeditKind::AuxCode` 对应 Core 的 `MarkedKind::AuxCode`，`Frame.aux_code_show` 随帧下发显示码开关）。
@@ -192,6 +195,13 @@ P2C 自由生成实验：`--eval-text <集> --eval-generate data/models/hanzhang
 `examples/preview.rs` 出 PNG 与真机截图并排比、`--measure` 与 AppKit 对宽度。mac 壳 `candidates/bitmap/` 贴位图，`[general] renderer = "system"` 切回 AppKit 绘制
 （过渡期退路，偏好设置「候选窗口」页可选）；`[general] font` 是候选窗字族名（空为系统字体，`bitmap/font_files.rs` 用 CoreText 按字族名找文件只加载那几个，没装就回系统字体；
 设置页 `preferences/font_picker/` 是搜索框 + 列表）。设计与验收见 `docs/design/rendering.md`。
+
+译文外观覆盖（2026-10-07）：`ThemeOverrides { gloss_size, gloss_color, fresh_color }`（`theme/mod.rs`）由各壳按配置构造，
+`Theme::with_overrides` 只动译文相关的项——字号落进单独的 `gloss_font`（行高按 `GLOSS_LINE_RATIO` 随字号放），颜色覆盖
+`colors.gloss` / `colors.fresh`。译文从与词性 / 辅码共用的 `annotation_font` 分出 `gloss_font` 后，三条布局路径都按
+`tone_font(tone)` 取字体：`renderer/mod.rs` 的 `annotation_line_height` 取一行里各段行高的**最大**值，`row_height` 再与候选词
+取大，`vertical.rs` / `horizontal.rs` / `matrix.rs` 随之算行高（此前竖排固定用 `text_font` 的行高，调大译文字号会叠行——这是本次修掉的 bug）。
+字号范围 `MIN_GLOSS_SIZE` / `MAX_GLOSS_SIZE`（8 / 48），`Color::parse_hex` 解析 `#RRGGBB[AA]`。
 
 ## crates/qingjian-update
 
@@ -276,6 +286,14 @@ TSF 原有数字 / OEM 标点 / 空格键码按当前布局用 `ToUnicodeEx` 解
 拼音显示位置（`[general] preedit`）在 Windows 上分两处落地：Server 把它读进 `RouterConfig.preedit` 并随 `Frame.preedit_mode`
 下发给 DLL，DLL（`com/service/key_sink.rs`）按 `inline()` 决定要不要放行内拼音，Server（`ui/candidates/render_data.rs::window_preedit`）
 按 `in_window()` 决定候选窗口顶部画不画拼音行；`window` 模式没有组句范围，光标矩形改从 `com/edit/anchor.rs::caret_rect`（当前选区）量。
+
+候选窗译文外观（2026-10-07）：`[theme]` 经 `RouterConfig.theme_config`（`ThemeConfig`，故意不叫 `theme`——那个名字已经被
+`ThemeMode` 占了）随 `RenderSettings` 下发，两条绘制路径都套上——青简渲染器在 `ui/painter/mod.rs` 折成 `ThemeOverrides`
+（`configure` 时字体没变就原地换覆盖、不重建），系统绘制在 `ui/candidates/theme/mod.rs` 按 `ThemeConfig` 构造 `Theme`，
+`view.rs` 的 `tone_font` / `annotation_line_height` 按 tone 取字体并让行高取该行最大值（此前固定 `text_font` 的行高，调大译文字号会叠行）。
+设置程序这边「候选窗口」页加「译文字号」（`NumberBox`，8–48）/ 两个颜色（`ColorPicker` + 「跟随内置色」）/「恢复默认」，
+`panel/message.rs` 对应 `GlossSize` / `GlossColor` / `FreshColor` / `ClearGlossColor` / `ClearFreshColor` / `ResetGloss` 六条消息。
+macOS 侧暂未接这项（本机没有可用的 macOS 工具链验证，留待 Mac 上补）。
 连不上 Server 时 DLL 自己拉起它（`tsf/src/com/service/launch.rs`）：`ShellExecuteW` 起与 DLL 同目录的 `qingjian-server.exe`
 （`uiAccess=true` 的 exe 用 `CreateProcess` 报 740），进程内 5 秒冷却 + 跨进程命名互斥体防止砸出一串 Server；
 起完清掉重连退避，下一键就试。Server 只在登录时由「启动」文件夹拉起，中途挂了以前只能等下次登录。

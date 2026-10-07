@@ -5,7 +5,7 @@
 use super::{HIGHLIGHT_INSET, INDEX_GAP, Metrics, Renderer};
 use crate::canvas::Canvas;
 use crate::color::Color;
-use crate::frame::Frame;
+use crate::frame::{Frame, Tone};
 use crate::text::TextStyle;
 
 /// 帧没给列宽时，一格里候选词最多多宽（按候选字号的倍数）。
@@ -51,11 +51,20 @@ impl Renderer {
         }
         let cells = self.matrix_cells(frame, m);
         let grid_rows = frame.rows.len().div_ceil(frame.columns.max(1));
-        let info_height = m.annotation_style(m.theme.colors.gloss).line_height + m.row_padding();
+        let info_height = self.matrix_info_height(frame, m) + m.row_padding();
         (
             cells.width(m.column_gap()) + m.px(HIGHLIGHT_INSET) * 2.0,
             cells.row_height * grid_rows as f32 + info_height,
         )
+    }
+
+    /// 矩阵下面那行信息的高度（像素）：完整文本用固定小字，译文用可调字号，高的说了算。
+    fn matrix_info_height(&self, frame: &Frame, m: &Metrics) -> f32 {
+        let text_line = m.px(m.theme.annotation_font.line_height);
+        frame
+            .highlighted
+            .and_then(|index| frame.rows.get(index))
+            .map_or(text_line, |row| m.row_height(text_line, &row.annotation))
     }
 
     pub(super) fn draw_matrix(
@@ -100,7 +109,7 @@ impl Renderer {
                     &row.index,
                     &m.index_style(),
                     x,
-                    top + m.small_offset(text_height),
+                    top + m.index_offset(text_height),
                 );
             }
             let mut shown = row.clone();
@@ -149,8 +158,7 @@ impl Renderer {
             if budget <= 0.0 {
                 break;
             }
-            let used =
-                self.draw_clipped(canvas, m, segment, m.tone_color(*tone), x, info_top, budget);
+            let used = self.draw_clipped_tone(canvas, m, segment, *tone, x, info_top, budget);
             x += used;
             budget -= used;
         }
@@ -169,6 +177,23 @@ impl Renderer {
         budget: f32,
     ) -> f32 {
         let style = m.annotation_style(color);
+        let (shown, _) = self.truncate(text, &style, budget);
+        self.draw_text(canvas, &shown, &style, x, top)
+    }
+
+    /// 同 [`Self::draw_clipped`]，但按色调取样式（译文用可调的 gloss_font，词性用固定小字）。
+    #[allow(clippy::too_many_arguments)]
+    fn draw_clipped_tone(
+        &mut self,
+        canvas: &mut Canvas,
+        m: &Metrics,
+        text: &str,
+        tone: Tone,
+        x: f32,
+        top: f32,
+        budget: f32,
+    ) -> f32 {
+        let style = m.tone_style(tone);
         let (shown, _) = self.truncate(text, &style, budget);
         self.draw_text(canvas, &shown, &style, x, top)
     }

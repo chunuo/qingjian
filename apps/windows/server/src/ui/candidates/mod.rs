@@ -20,8 +20,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
-use qingjian_platform::ThemeMode;
 use qingjian_platform::protocol::Frame;
+use qingjian_platform::{ThemeConfig, ThemeMode};
 
 pub(crate) use self::render_data::RenderData;
 use self::theme::Theme;
@@ -29,6 +29,7 @@ use super::layered::{self, Layered};
 use super::monitor;
 use super::painter::SharedPainter;
 use super::window_class::WindowClass;
+use crate::dispatch::RenderSettings;
 
 const CLASS_NAME: PCWSTR = w!("QingjianCandidateWindow");
 static CLASS: WindowClass = WindowClass::new();
@@ -69,6 +70,12 @@ pub(crate) struct CandidateWindow {
     /// 上次记进日志的缩放值（窗口 DPI、光标所在显示器 DPI）：变了才再记一条（#146）。
     logged_dpi: Cell<Option<(u32, Option<u32>)>>,
 
+    /// 译文外观（`[theme]`）：GDI 画法用它造字体与配色，变了重建。
+    theme_config: RefCell<ThemeConfig>,
+
+    /// 造当前 GDI 主题时用的那份译文外观；与 [`Self::theme_config`] 不等就重建。
+    applied_theme: RefCell<ThemeConfig>,
+
     /// 青简渲染器；`None` 走 GDI。
     painter: SharedPainter,
 }
@@ -85,7 +92,12 @@ impl CandidateWindow {
         })?;
         let dpi = unsafe { GetDpiForSystem() }.max(96);
         let dark = resolve_dark(ThemeMode::default());
-        let data = RefCell::new(RenderData::empty(Rc::new(Theme::new(dpi, dark))));
+        let theme_config = ThemeConfig::default();
+        let data = RefCell::new(RenderData::empty(Rc::new(Theme::new(
+            dpi,
+            dark,
+            &theme_config,
+        ))));
         // NOACTIVATE：显示时不抢应用焦点。
         let hwnd = unsafe {
             CreateWindowExW(
@@ -109,8 +121,15 @@ impl CandidateWindow {
             dpi: Cell::new(dpi),
             dark: Cell::new(dark),
             logged_dpi: Cell::new(None),
+            theme_config: RefCell::new(theme_config),
+            applied_theme: RefCell::new(ThemeConfig::default()),
             painter,
         })
+    }
+
+    /// 换译文外观设置；变了下次 `show` 时重建 GDI 主题。
+    pub(crate) fn configure(&self, settings: &RenderSettings) {
+        *self.theme_config.borrow_mut() = settings.theme.clone();
     }
 
     /// 刷新内容（不定位、不显示）。
@@ -206,8 +225,13 @@ impl CandidateWindow {
         };
         self.log_dpi(caret, window_dpi, monitor_dpi, dpi);
         let dark = resolve_dark(self.data.borrow().theme_mode);
-        if dpi != self.dpi.get() || dark != self.dark.get() {
-            self.data.borrow_mut().theme = Rc::new(Theme::new(dpi, dark));
+        let theme_config = self.theme_config.borrow();
+        if dpi != self.dpi.get()
+            || dark != self.dark.get()
+            || *theme_config != *self.applied_theme.borrow()
+        {
+            self.data.borrow_mut().theme = Rc::new(Theme::new(dpi, dark, &theme_config));
+            *self.applied_theme.borrow_mut() = theme_config.clone();
             self.dpi.set(dpi);
             self.dark.set(dark);
         }

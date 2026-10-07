@@ -1,5 +1,7 @@
 //! 设置窗口的消息类型：导航切换与各页的「改动」，根组件的 `update` 据此落盘。
 
+use windows_reactor::Color;
+
 /// 设置窗口的消息；「改动」消息带控件新值，`update` 据此落盘。
 #[derive(Clone)]
 pub(crate) enum Message {
@@ -35,6 +37,18 @@ pub(crate) enum Message {
     FontQuery(String),
     /// 从提示里选了一个字族。
     Font(String),
+    /// 译文小字的字号（`[theme] gloss_size`，8–48）。
+    GlossSize(Option<f64>),
+    /// 普通译文的颜色（`[theme] gloss_color`）。
+    GlossColor(Color),
+    /// 生词译文的颜色（`[theme] fresh_color`）。
+    FreshColor(Color),
+    /// 普通译文改回「跟随内置色」（`gloss_color` 留空）。
+    ClearGlossColor,
+    /// 生词译文改回「跟随内置色」（`fresh_color` 留空）。
+    ClearFreshColor,
+    /// 把译文小字的外观恢复成内置值。
+    ResetGloss,
     StatusBar(bool),
 
     // 云服务页

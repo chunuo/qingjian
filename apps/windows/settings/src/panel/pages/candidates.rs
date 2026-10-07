@@ -1,10 +1,26 @@
-//! 「候选窗口」页：外观、排布、渲染引擎、字体、拼音显示位置、悬浮状态条。
+//! 「候选窗口」页：外观、排布、渲染引擎、字体、译文小字、拼音显示位置、悬浮状态条。
 
-use qingjian_platform::{CandidateRenderer, LayoutMode, PreeditMode, ThemeMode};
+use qingjian_platform::{
+    CandidateRenderer, DEFAULT_FRESH_COLOR, DEFAULT_GLOSS_COLOR, LayoutMode, MAX_GLOSS_SIZE,
+    MIN_GLOSS_SIZE, PreeditMode, ThemeColor, ThemeMode,
+};
 use windows_reactor::*;
 
 use crate::panel::controls::{field, page};
 use crate::panel::{Message, Settings};
+
+/// 配置里的十六进制写法 → 颜色控件要的值；留空（跟随内置色）时用给定的内置色显示。
+fn picker_color(value: &str, fallback: &str) -> Color {
+    let hex = if value.trim().is_empty() {
+        fallback
+    } else {
+        value.trim()
+    };
+    match ThemeColor::parse_hex(hex) {
+        Some(ThemeColor { r, g, b, a }) => Color::argb(a, r, g, b),
+        None => Color::rgb(0, 0, 0),
+    }
+}
 
 /// 枚举下拉：按 `label()` 列项，选中 `current`（找不到取 0）。
 fn mode_combo<T: PartialEq + Copy>(
@@ -21,6 +37,7 @@ fn mode_combo<T: PartialEq + Copy>(
 
 pub(crate) fn view(settings: &Settings, context: &mut ViewContext<Settings>) -> View {
     let g = &settings.config.general;
+    let t = &settings.config.theme;
     let font_text = settings
         .font_query
         .clone()
@@ -73,6 +90,60 @@ pub(crate) fn view(settings: &Settings, context: &mut ViewContext<Settings>) -> 
                 .items_source(suggestions)
                 .on_text_changed(context.callback(Message::FontQuery))
                 .on_suggestion_chosen(context.callback(Message::Font)),
+        ),
+        field(
+            "译文字号",
+            "候选词右侧那列小字（读音、词性、译文、辅码）的大小，8–48 点，缺省 12；\
+             生词译文（浅色外观里那个橙色的词）也按这个大小画。候选词本身与顶部拼音行不变。",
+            NumberBox::new()
+                .minimum(MIN_GLOSS_SIZE as f64)
+                .maximum(MAX_GLOSS_SIZE as f64)
+                .value(t.gloss_size() as f64)
+                .on_value_changed(context.callback(Message::GlossSize)),
+        ),
+        field(
+            "普通译文颜色",
+            "见过几轮、不再强调的译文用这个颜色；留空跟随内置色（浅色外观是灰的，深色外观更亮）。",
+            StackPanel::new()
+                .orientation(Orientation::Horizontal)
+                .spacing(12.0)
+                .children([
+                    ColorPicker::new()
+                        .color(picker_color(&t.gloss_color, DEFAULT_GLOSS_COLOR))
+                        .is_alpha_enabled(true)
+                        .is_hex_input_visible(true)
+                        .on_color_changed(context.callback(Message::GlossColor))
+                        .into(),
+                    Button::new()
+                        .on_click(context.message(Message::ClearGlossColor))
+                        .content("跟随内置色"),
+                ]),
+        ),
+        field(
+            "生词译文颜色",
+            "还没见过几轮、需要强调的译文用这个颜色，缺省是橙的；留空跟随内置色。\
+             想更醒目的就往深里调，看着晃眼就调浅。",
+            StackPanel::new()
+                .orientation(Orientation::Horizontal)
+                .spacing(12.0)
+                .children([
+                    ColorPicker::new()
+                        .color(picker_color(&t.fresh_color, DEFAULT_FRESH_COLOR))
+                        .is_alpha_enabled(true)
+                        .is_hex_input_visible(true)
+                        .on_color_changed(context.callback(Message::FreshColor))
+                        .into(),
+                    Button::new()
+                        .on_click(context.message(Message::ClearFreshColor))
+                        .content("跟随内置色"),
+                ]),
+        ),
+        field(
+            "译文外观",
+            "字号与两个颜色一起回到内置值。",
+            Button::new()
+                .on_click(context.message(Message::ResetGloss))
+                .content("恢复默认"),
         ),
         field(
             "拼音显示",

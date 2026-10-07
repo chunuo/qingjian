@@ -1,8 +1,9 @@
 //! 根组件的 Reactor 生命周期：建状态、按消息落盘、画左侧导航 + 当前页。
 
 use qingjian_platform::{
-    CandidateRenderer, Config, DEFAULT_ENGLISH_CANDIDATES_OFF_WINDOWS, LayoutMode, LogLevel,
-    PreeditMode, ShiftLetter, ThemeMode, UpdateChannel,
+    CandidateRenderer, Config, DEFAULT_ENGLISH_CANDIDATES_OFF_WINDOWS, DEFAULT_GLOSS_SIZE,
+    LayoutMode, LogLevel, MAX_GLOSS_SIZE, MIN_GLOSS_SIZE, PreeditMode, ShiftLetter, ThemeMode,
+    UpdateChannel,
 };
 use windows_reactor::*;
 
@@ -12,6 +13,14 @@ use super::notice::Notice;
 use super::pages::{about, aux_code, cloud, dictionaries, general, shortcut};
 use super::recorder::Recorder;
 use super::{Message, Settings};
+
+/// 颜色控件的值 → 配置里的十六进制写法（`#RRGGBBAA`，全不透明也带上 alpha，写回去再看还是同一个色）。
+fn hex_of(color: Color) -> String {
+    format!(
+        "#{:02x}{:02x}{:02x}{:02x}",
+        color.r, color.g, color.b, color.a
+    )
+}
 
 impl Component for Settings {
     type Input = ();
@@ -128,6 +137,24 @@ impl Component for Settings {
             Message::Font(family) => {
                 self.font_query = None;
                 self.save("general", "font", family);
+            }
+            Message::GlossSize(Some(value)) => {
+                let size = value.clamp(MIN_GLOSS_SIZE as f64, MAX_GLOSS_SIZE as f64);
+                self.save("theme", "gloss_size", size);
+            }
+            Message::GlossColor(color) => {
+                self.save("theme", "gloss_color", hex_of(color));
+            }
+            Message::FreshColor(color) => {
+                self.save("theme", "fresh_color", hex_of(color));
+            }
+            Message::ClearGlossColor => self.save("theme", "gloss_color", ""),
+            Message::ClearFreshColor => self.save("theme", "fresh_color", ""),
+            Message::ResetGloss => {
+                // 三项一起回内置值：空颜色串表示「跟随内置色」，字号写回缺省。
+                self.save("theme", "gloss_color", "");
+                self.save("theme", "fresh_color", "");
+                self.save("theme", "gloss_size", DEFAULT_GLOSS_SIZE as f64);
             }
             Message::StatusBar(on) => self.save("status_bar", "enabled", on),
 

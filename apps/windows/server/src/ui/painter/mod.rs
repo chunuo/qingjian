@@ -7,7 +7,7 @@ use std::rc::Rc;
 use qingjian_platform::{CandidateRenderer, LayoutMode};
 use qingjian_render::{
     FontLibrary, Frame, Layout, Rendered, RenderedStatus, Renderer, Shadow, StatusCell, Theme,
-    UiFont, system_fonts,
+    ThemeOverrides, UiFont, system_fonts,
 };
 
 use crate::dispatch::RenderSettings;
@@ -21,11 +21,14 @@ pub(super) struct Painter {
 
     /// 建它时用的字族名（空为系统字体），设置没变就不重建。
     font: String,
+
+    /// 译文小字的覆盖项（`[theme]`）。
+    overrides: ThemeOverrides,
 }
 
 impl Painter {
     /// `font` 是用户选的字族名，空为系统字体；没装就回到系统字体。字体库加载失败返回 `None`，调用方退回 GDI。
-    fn new(font: &str) -> Option<Self> {
+    fn new(font: &str, overrides: ThemeOverrides) -> Option<Self> {
         let started = std::time::Instant::now();
         let library = if font.is_empty() {
             FontLibrary::system("zh-CN")
@@ -51,6 +54,7 @@ impl Painter {
         Some(Self {
             renderer: Renderer::new(library),
             font: font.to_owned(),
+            overrides,
         })
     }
 
@@ -59,8 +63,13 @@ impl Painter {
         let mut painter = shared.borrow_mut();
         match settings.renderer {
             CandidateRenderer::Qingjian => {
-                if painter.as_ref().map(|p| p.font.as_str()) != Some(settings.font.as_str()) {
-                    *painter = Self::new(&settings.font);
+                let overrides = theme_overrides(&settings.theme);
+                // 换字体要重建渲染器（字体库随它）；只改译文外观时原地换覆盖项，省下一次字体库加载。
+                match painter.as_mut() {
+                    Some(painter) if painter.font == settings.font => {
+                        painter.overrides = overrides;
+                    }
+                    _ => *painter = Self::new(&settings.font, overrides),
                 }
             }
             CandidateRenderer::System => {
@@ -87,7 +96,13 @@ impl Painter {
         let started = std::time::Instant::now();
         let rendered = self
             .renderer
-            .render(frame, layout, &theme(dark), scale(dpi), Some(&SHADOW))
+            .render(
+                frame,
+                layout,
+                &theme(dark, &self.overrides),
+                scale(dpi),
+                Some(&SHADOW),
+            )
             .inspect_err(|error| tracing::warn!(%error, "候选窗渲染失败"))
             .ok()?;
         tracing::debug!(
@@ -106,8 +121,14 @@ impl Painter {
         dark: bool,
         dpi: u32,
     ) -> Option<RenderedStatus> {
+        // 状态条不画译文，用内置主题即可（覆盖项只动译文那几项，这里干脆不套）。
         self.renderer
-            .render_status(cells, &theme(dark), scale(dpi), Some(&SHADOW))
+            .render_status(
+                cells,
+                &theme(dark, &ThemeOverrides::default()),
+                scale(dpi),
+                Some(&SHADOW),
+            )
             .inspect_err(|error| tracing::warn!(%error, "状态条渲染失败"))
             .ok()
     }
@@ -116,8 +137,21 @@ impl Painter {
 /// 两个窗口都用渲染器画阴影（分层窗口没有系统阴影），参数与 macOS 面板一致。
 const SHADOW: Shadow = Shadow::mac_panel();
 
-fn theme(dark: bool) -> Theme {
-    if dark { Theme::dark() } else { Theme::light() }
+fn theme(dark: bool, overrides: &ThemeOverrides) -> Theme {
+    let theme = if dark { Theme::dark() } else { Theme::light() };
+    theme.with_overrides(overrides)
+}
+
+/// 配置写的字号 / 颜色换成渲染器的覆盖项；颜色解析不了就跳过（配置层已记过警告）。
+fn theme_overrides(config: &qingjian_platform::ThemeConfig) -> ThemeOverrides {
+    let color = |value: Option<qingjian_platform::ThemeColor>| {
+        value.map(|color| qingjian_render::Color::rgba(color.r, color.g, color.b, color.a))
+    };
+    ThemeOverrides {
+        gloss_size: config.gloss_size_changed().then(|| config.gloss_size()),
+        gloss_color: color(config.gloss_color()),
+        fresh_color: color(config.fresh_color()),
+    }
 }
 
 /// 点 → 像素的倍数。

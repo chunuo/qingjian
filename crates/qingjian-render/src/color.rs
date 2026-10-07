@@ -31,6 +31,18 @@ impl Color {
         }
     }
 
+    /// 解析 `#RRGGBB` / `#RRGGBBAA`（`#` 可省，大小写不敏感）；写法不对返回 `None`。
+    /// 主题配置里用户填的颜色走这里，坏写法由调用方退回内置色。
+    pub fn parse_hex(text: &str) -> Option<Self> {
+        let hex = text.trim().trim_start_matches('#');
+        let byte = |start: usize| u8::from_str_radix(hex.get(start..start + 2)?, 16).ok();
+        match hex.len() {
+            6 => Some(Self::rgb(byte(0)?, byte(2)?, byte(4)?)),
+            8 => Some(Self::rgba(byte(0)?, byte(2)?, byte(4)?, byte(6)?)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn to_skia(self) -> tiny_skia::Color {
         tiny_skia::Color::from_rgba8(self.r, self.g, self.b, self.a)
     }
@@ -69,5 +81,18 @@ mod tests {
         assert_eq!((half.red(), half.alpha()), (0, 128));
         assert_eq!(mul_u8(255, 255), 255);
         assert_eq!(mul_u8(0, 255), 0);
+    }
+
+    #[test]
+    fn parses_hex_with_or_without_hash() {
+        assert_eq!(Color::parse_hex("#FF8D28"), Some(Color::rgb(255, 141, 40)));
+        assert_eq!(Color::parse_hex("ff8d28"), Some(Color::rgb(255, 141, 40)));
+        assert_eq!(
+            Color::parse_hex(" #ff8d2880 "),
+            Some(Color::rgba(255, 141, 40, 128))
+        );
+        for bad in ["", "#", "#FFF", "xyz", "#12345", "#1234567", "#gggggg"] {
+            assert_eq!(Color::parse_hex(bad), None, "{bad}");
+        }
     }
 }

@@ -2,6 +2,7 @@
 
 mod palette;
 
+use qingjian_platform::{ThemeColor, ThemeConfig};
 use windows::Win32::Foundation::COLORREF;
 use windows::Win32::Graphics::Gdi::{
     CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, DEFAULT_CHARSET, DeleteObject,
@@ -24,6 +25,10 @@ pub(crate) struct Theme {
     pub text_font: HFONT,
 
     pub annotation_font: HFONT,
+
+    /// 候选行右侧译文 / 词性 / 码的字号（`[theme] gloss_size`）；缺省与 [`Self::annotation_font`] 同大小。
+    /// 与它分开是让「调大译文」不影响顶部拼音行。
+    pub gloss_font: HFONT,
 
     pub index_font: HFONT,
 
@@ -63,11 +68,13 @@ pub(crate) struct Theme {
 }
 
 impl Theme {
-    /// `dpi` 96 为 100%。
-    pub(crate) fn new(dpi: u32, dark: bool) -> Self {
+    /// `dpi` 96 为 100%。`config` 是 `[theme]` 分节：只动译文字号与译文两色。
+    pub(crate) fn new(dpi: u32, dark: bool, config: &ThemeConfig) -> Self {
         let scale = |px: i32| (px * dpi as i32) / 96;
         // 负高度 = 字符高度（不含内部行距）。
         let font = |px: i32| create_font(-scale(px), w!("Microsoft YaHei UI"));
+        // 译文字号配了就用它（配置层已夹到 8–48）；没改就用内置的 12。
+        let gloss_px = config.gloss_size().round() as i32;
         let palette = if dark {
             Palette::dark()
         } else {
@@ -76,12 +83,17 @@ impl Theme {
         Self {
             text_font: font(16),
             annotation_font: font(12),
+            gloss_font: if config.gloss_size_changed() {
+                font(gloss_px)
+            } else {
+                font(12)
+            },
             index_font: font(11),
             symbol_font: create_font(-scale(15), w!("Segoe UI Symbol")),
             text_color: palette.text_color,
-            gloss_color: palette.gloss_color,
+            gloss_color: config.gloss_color().map_or(palette.gloss_color, color_ref),
             pos_color: palette.pos_color,
-            fresh_color: palette.fresh_color,
+            fresh_color: config.fresh_color().map_or(palette.fresh_color, color_ref),
             index_color: palette.index_color,
             cloud_color: palette.cloud_color,
             background: palette.background,
@@ -99,6 +111,7 @@ impl Drop for Theme {
         for font in [
             self.text_font,
             self.annotation_font,
+            self.gloss_font,
             self.index_font,
             self.symbol_font,
         ] {
@@ -107,6 +120,11 @@ impl Drop for Theme {
             }
         }
     }
+}
+
+/// 平台无关颜色 → COLORREF。
+fn color_ref(color: ThemeColor) -> COLORREF {
+    rgb(color.r, color.g, color.b)
 }
 
 /// 缺字由 GDI 字体链回落。`height` 为负的字符高度。

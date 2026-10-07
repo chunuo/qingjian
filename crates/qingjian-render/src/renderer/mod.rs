@@ -94,8 +94,14 @@ impl Metrics<'_> {
         self.style(self.theme.text_font, self.theme.colors.text)
     }
 
+    /// 顶部拼音行 / 提示行的小字。
     fn annotation_style(&self, color: Color) -> TextStyle {
         self.style(self.theme.annotation_font, color)
+    }
+
+    /// 候选行右侧的译文 / 词性 / 码；字号可被用户配置覆盖（[`Theme::gloss_font`]），与拼音行分开。
+    fn gloss_style(&self, color: Color) -> TextStyle {
+        self.style(self.theme.gloss_font, color)
     }
 
     fn index_style(&self) -> TextStyle {
@@ -111,9 +117,51 @@ impl Metrics<'_> {
         }
     }
 
-    /// 小字相对候选词往下挪多少，让两者底部对齐。
-    fn small_offset(&self, text_height: f32) -> f32 {
-        (text_height - self.px(self.theme.annotation_font.line_height)).max(0.0)
+    /// 一行 annotation 片段按色调取样式：译文 / 生词 / 码用可调的 `gloss_font`，词性用固定小字。
+    fn tone_style(&self, tone: Tone) -> TextStyle {
+        self.style(self.tone_font(tone), self.tone_color(tone))
+    }
+
+    /// 某段 annotation 用哪个字号：译文 / 生词 / 码是被用户调过的 [`Theme::gloss_font`]，词性用固定小字。
+    fn tone_font(&self, tone: Tone) -> FontSpec {
+        match tone {
+            Tone::Gloss | Tone::Fresh | Tone::Code => self.theme.gloss_font,
+            Tone::Faint => self.theme.annotation_font,
+        }
+    }
+
+    /// 一行 annotation 占的高度（像素）：取各段里最高的那个；没有段时退回固定小字。
+    fn annotation_line_height(&self, annotation: &[(String, Tone)]) -> f32 {
+        annotation
+            .iter()
+            .map(|(_, tone)| self.px(self.tone_font(*tone).line_height))
+            .fold(self.px(self.theme.annotation_font.line_height), f32::max)
+    }
+
+    /// 一个候选行的高度（像素，不含 [`Theme::row_padding`]）：候选词与译文里高的那个。
+    /// 译文调大后会超过候选词，行高不跟着长就会把下一行压上来。
+    fn row_height(&self, text_height: f32, annotation: &[(String, Tone)]) -> f32 {
+        text_height.max(self.annotation_line_height(annotation))
+    }
+
+    /// 一段小字相对候选词往下挪多少，让两者底部大致对齐。`line_height` 是它自己的行高（点）。
+    fn small_offset(&self, text_height: f32, line_height: f32) -> f32 {
+        (text_height - self.px(line_height)).max(0.0)
+    }
+
+    /// 某个色调的 annotation 相对候选词的行内偏移。
+    fn tone_offset(&self, tone: Tone, text_height: f32) -> f32 {
+        self.small_offset(text_height, self.tone_font(tone).line_height)
+    }
+
+    /// 译文小字相对候选词往下挪多少（按 [`Theme::gloss_font`] 的行高）。
+    fn gloss_offset(&self, text_height: f32) -> f32 {
+        self.small_offset(text_height, self.theme.gloss_font.line_height)
+    }
+
+    /// 序号相对候选词往下挪多少。
+    fn index_offset(&self, text_height: f32) -> f32 {
+        self.small_offset(text_height, self.theme.index_font.line_height)
     }
 
     /// 云朵图标占的宽度（含后面的间距）。
@@ -269,13 +317,13 @@ impl Renderer {
         let style = m.style(m.theme.text_font, color);
         word_x += self.draw_text(canvas, &row.text, &style, word_x, top);
         if let Some(code) = &row.code {
-            let style = m.annotation_style(m.tone_color(Tone::Code));
+            let style = m.gloss_style(m.tone_color(Tone::Code));
             self.draw_text(
                 canvas,
                 code,
                 &style,
                 word_x,
-                top + m.small_offset(text_height),
+                top + m.gloss_offset(text_height),
             );
         }
     }
@@ -285,7 +333,7 @@ impl Renderer {
         let Some(code) = &row.code else {
             return 0.0;
         };
-        let style = m.annotation_style(m.tone_color(Tone::Code));
+        let style = m.gloss_style(m.tone_color(Tone::Code));
         self.measure(code, &style).width
     }
 
@@ -306,5 +354,100 @@ impl Renderer {
             m.corner_radius() / 2.0,
             m.theme.colors.highlight,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Renderer;
+    use crate::fonts::FontLibrary;
+    use crate::frame::{Frame, Preedit, Row, Tone};
+    use crate::layout::Layout;
+    use crate::theme::{FontSpec, Theme, ThemeOverrides};
+
+    /// 一行普通译文 + 一行生词译文，竖排时每行都带 annotation。
+    fn frame() -> Frame {
+        let annotated = |index: usize, text: &str, annotation: &[(&str, Tone)]| Row {
+            index: (index + 1).to_string(),
+            text: text.to_owned(),
+            code: None,
+            annotation: annotation
+                .iter()
+                .map(|(text, tone)| ((*text).to_owned(), *tone))
+                .collect(),
+            cloud: false,
+        };
+        Frame {
+            preedit: Some(Preedit::plain("ni'hao", 6)),
+            rows: vec![
+                annotated(0, "你好", &[("int. ", Tone::Faint), ("hello", Tone::Gloss)]),
+                annotated(
+                    1,
+                    "你好像",
+                    &[("phr. ", Tone::Faint), ("you seem", Tone::Fresh)],
+                ),
+                annotated(2, "你好好", &[]),
+            ],
+            highlighted: Some(0),
+            footer: Some("1/3".to_owned()),
+            ..Frame::default()
+        }
+    }
+
+    fn overrides(size: f32) -> ThemeOverrides {
+        ThemeOverrides {
+            gloss_size: Some(size),
+            ..ThemeOverrides::default()
+        }
+    }
+
+    #[test]
+    fn bigger_gloss_grows_vertical_rows() {
+        // 没有系统字体的环境（CI 容器）跳过
+        let Ok(library) = FontLibrary::system("zh-CN") else {
+            return;
+        };
+        let mut renderer = Renderer::new(library);
+        let mut height = |theme: &Theme| {
+            renderer
+                .render(&frame(), Layout::Vertical, theme, 2.0, None)
+                .unwrap()
+                .content_size_points()
+                .1
+        };
+        let base = height(&Theme::light());
+        // 12 pt 的译文比 16 pt 的候选词矮，行高只看候选词；调大后译文更高的那一行必须把行高撑起来
+        let big = height(&Theme::light().with_overrides(&overrides(24.0)));
+        assert!(big > base, "译文调大后竖排高度该跟着长：{base} → {big}");
+    }
+
+    #[test]
+    fn bigger_gloss_grows_horizontal_highlight_row() {
+        let Ok(library) = FontLibrary::system("zh-CN") else {
+            return;
+        };
+        let mut renderer = Renderer::new(library);
+        let mut height = |theme: &Theme| {
+            renderer
+                .render(&frame(), Layout::Horizontal, theme, 2.0, None)
+                .unwrap()
+                .content_size_points()
+                .1
+        };
+        let base = height(&Theme::light());
+        let big = height(&Theme::light().with_overrides(&overrides(24.0)));
+        assert!(
+            big > base,
+            "译文调大后横排高亮行的译文行该跟着长：{base} → {big}"
+        );
+    }
+
+    #[test]
+    fn gloss_override_keeps_annotation_font_untouched() {
+        // 拼音行 / 词性用的是 annotation_font，不该被译文字号覆盖带着一起放大
+        let theme = Theme::light().with_overrides(&overrides(24.0));
+        assert_eq!(theme.annotation_font, FontSpec::new(12.0, 15.0));
+        assert_eq!(theme.gloss_font.size, 24.0);
+        assert!(theme.gloss_font.line_height > 24.0);
     }
 }

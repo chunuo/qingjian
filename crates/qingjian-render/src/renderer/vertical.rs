@@ -30,7 +30,6 @@ impl Renderer {
         };
         let text_style = m.text_style();
         let index_style = m.index_style();
-        let annotation_style = m.annotation_style(m.theme.colors.gloss);
         for row in rows {
             let index = self.measure(&row.index, &index_style);
             let mut text = self.measure(&row.text, &text_style);
@@ -38,15 +37,23 @@ impl Renderer {
                 text.width += m.cloud_width();
             }
             text.width += self.code_width(row, m);
+            // 各段按自己的色调取样式：普通译文用 gloss_font（用户可调），词性 / 读音用固定的小字，
+            // 这样调大译文不会把词性也一起放大。
             let annotation: f32 = row
                 .annotation
                 .iter()
-                .map(|(s, _)| self.measure(s, &annotation_style).width)
+                .map(|(s, tone)| {
+                    let style = m.tone_style(*tone);
+                    self.measure(s, &style).width
+                })
                 .sum();
             columns.index_width = columns.index_width.max(index.width);
             columns.text_width = columns.text_width.max(text.width);
             columns.annotation_width = columns.annotation_width.max(annotation);
-            columns.row_height = columns.row_height.max(text.height + m.row_padding() * 2.0);
+            // 译文调大后能比候选词还高，行高要跟着长，否则下一行会压上来。
+            columns.row_height = columns
+                .row_height
+                .max(m.row_height(text.height, &row.annotation) + m.row_padding() * 2.0);
         }
         columns
     }
@@ -77,19 +84,19 @@ impl Renderer {
                 );
             }
             let top = y + m.row_padding();
-            let small_offset = m.small_offset(text_height);
             self.draw_text(
                 canvas,
                 &row.index,
                 &m.index_style(),
                 left + m.padding(),
-                top + small_offset,
+                top + m.index_offset(text_height),
             );
             self.draw_word(canvas, m, row, text_x, top, text_height);
             let mut x = annotation_x;
             for (segment, tone) in &row.annotation {
-                let style = m.annotation_style(m.tone_color(*tone));
-                x += self.draw_text(canvas, segment, &style, x, top + small_offset);
+                let style = m.tone_style(*tone);
+                let offset = m.tone_offset(*tone, text_height);
+                x += self.draw_text(canvas, segment, &style, x, top + offset);
             }
             y += columns.row_height;
         }
